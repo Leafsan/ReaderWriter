@@ -244,6 +244,10 @@ char *e[L3] = {
  */
 int alive = 1;
 
+int count_read = 0;							//variable for count reader thread.
+pthread_mutex_t mutex_critical, mutex_fair;	//mutex for control critical section and fairness(FIFO)
+pthread_mutex_t mutex_rcount;				//mutex for reader count.
+
 /*
  * Reader 스레드는 같은 문자를 N번 출력한다. 예를 들면 <AAA...AA> 이런 식이다.
  * 출력할 문자는 인자를 통해 0이면 A, 1이면 B, ..., 등으로 출력하며, 시작과 끝을 <...>로 나타낸다.
@@ -262,9 +266,20 @@ void *reader(void *arg)
      * 스레드가 살아 있는 동안 같은 문자열 시퀀스 <XXX...XX>를 반복해서 출력한다.
      */
     while (alive) {
-        /*
-         * Begin Critical Section
-         */
+		pthread_mutex_lock(&mutex_fair);
+		pthread_mutex_lock(&mutex_rcount);
+
+		count_read++;
+		if (count_read == 1)
+			pthread_mutex_lock(&mutex_critical);
+
+		pthread_mutex_unlock(&mutex_rcount);
+		pthread_mutex_unlock(&mutex_fair);
+		
+		/*
+ 	  	 * Begin Critical Section
+		 */
+
         printf("<");
         for (i = 0; i < N; ++i)
             printf("%c", 'A'+id);
@@ -272,6 +287,15 @@ void *reader(void *arg)
         /* 
          * End Critical Section
          */
+
+		pthread_mutex_lock(&mutex_rcount);
+		
+		count_read--;
+		if (count_read == 0)
+			pthread_mutex_unlock(&mutex_critical);
+
+		pthread_mutex_unlock(&mutex_rcount);
+
     }
     pthread_exit(0);
 }
@@ -300,6 +324,11 @@ void *writer(void *arg)
      * 스레드가 살아 있는 동안 같은 이미지를 반복해서 출력한다.
      */
     while (alive) {
+
+		pthread_mutex_lock(&mutex_fair);
+		pthread_mutex_lock(&mutex_critical);
+		pthread_mutex_unlock(&mutex_fair);
+
         /*
          * Begin Critical Section
          */
@@ -329,6 +358,8 @@ void *writer(void *arg)
         /* 
          * End Critical Section
          */
+
+		pthread_mutex_unlock(&mutex_critical);
     }
     pthread_exit(0);
 }
@@ -345,6 +376,12 @@ int main(void)
     pthread_t rthid[RNUM];
     pthread_t wthid[WNUM];
     struct timespec req, rem;
+
+	pthread_mutex_init(&mutex_fair, NULL);
+	pthread_mutex_init(&mutex_rcount, NULL);
+	pthread_mutex_init(&mutex_critical, NULL);
+
+
 
     /*
      * Create RNUM reader threads
@@ -380,5 +417,10 @@ int main(void)
         pthread_join(rthid[i], NULL);
     for (i = 0; i < WNUM; ++i)
         pthread_join(wthid[i], NULL);
+
+	pthread_mutex_destroy(&mutex_fair);
+	pthread_mutex_destroy(&mutex_rcount);
+	pthread_mutex_destroy(&mutex_critical);
+
     exit(0);
 }
