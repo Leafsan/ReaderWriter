@@ -969,7 +969,8 @@ fair_reader_writer의 도중에 한번 정도 의도한 출력이 나오긴 했�
 <img src="https://raw.githubusercontent.com/Leafsan/ReaderWriter/master/Report/03.png">
 기존 가상환경이 문제일 수도 있다는 판단으로 윈도우에서 제공하는 가상환경인 WSL2를 이용하기로 했다.
 
-실행 결과는 의도한대로 reader가 critical section 진입 시 가능한 한 많은 스레드가 접근해서 문자열이 어지럽게 섞여서 출력되었다.
+<img src="https://raw.githubusercontent.com/Leafsan/ReaderWriter/master/Report/wsl2_01.png">
+실행 결과는 의도한대로 reader가 critical section 진입 시 가능한 한 많은 reader 스레드가 접근해서 문자열이 어지럽게 섞여서 출력되었다.
 
 #### 소결론
 이번 프로젝트는 시스템 환경에 큰 영향을 받는 프로젝트였다고 생각된다. 기존의 싱글코어 가상환경에서도 reader 스레드가 동시에 접근함을 알 수 있는 문자열이 간혹 보이긴 했지만 WSL2 환경처럼 제대로 된 결과를 보여주지는 못했다.
