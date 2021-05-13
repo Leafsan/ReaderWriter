@@ -1,5 +1,5 @@
 CC=gcc
-CFLAGS=-g -o
+CFLAGS=-o
 TARGETS=writer_prefer fair_reader_writer
 all: $(TARGETS)
 .PHONY: all

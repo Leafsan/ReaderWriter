@@ -245,7 +245,7 @@ char *e[L3] = {
 int alive = 1;
 
 int count_write, count_read = 0;							//count how many write/read waiting.(critical section)
-pthread_mutex_t mutex_read, mutex_write;					//mutex for write/read.
+pthread_mutex_t mutex_readTry, mutex_resource;				//mutex for readTry/Resource.
 pthread_mutex_t mutex_rcount, mutex_wcount;					//mutex for count
 
 
@@ -273,15 +273,15 @@ void *reader(void *arg)
         /*
          * Begin Critical Section
          */
-		pthread_mutex_lock(&mutex_read);
+		pthread_mutex_lock(&mutex_readTry);
 		pthread_mutex_lock(&mutex_rcount);
 
 		count_read++;
 		if(count_read == 1)
-			pthread_mutex_lock(&mutex_write);
+			pthread_mutex_lock(&mutex_resource);
 
 		pthread_mutex_unlock(&mutex_rcount);
-		pthread_mutex_unlock(&mutex_read);
+		pthread_mutex_unlock(&mutex_readTry);
         
 		printf("<");
         for (i = 0; i < N; ++i)
@@ -292,7 +292,7 @@ void *reader(void *arg)
 
 		count_read--;
 		if(count_read == 0)
-			pthread_mutex_unlock(&mutex_write);
+			pthread_mutex_unlock(&mutex_resource);
 
 		pthread_mutex_unlock(&mutex_rcount);
 
@@ -335,11 +335,11 @@ void *writer(void *arg)
 
 		count_write++;
 		if (count_write==1)
-			pthread_mutex_lock(&mutex_read);
+			pthread_mutex_lock(&mutex_readTry);
 
 		pthread_mutex_unlock(&mutex_wcount);
 
-		pthread_mutex_lock(&mutex_write);
+		pthread_mutex_lock(&mutex_resource);
         printf("\n");
         switch (id) {
             case 0:
@@ -363,13 +363,13 @@ void *writer(void *arg)
             default:
                 ;
         }
-		pthread_mutex_unlock(&mutex_write);
+		pthread_mutex_unlock(&mutex_resource);
 
 		pthread_mutex_lock(&mutex_wcount);
 
 		count_write--;
 		if (count_write==0)
-			pthread_mutex_unlock(&mutex_read);
+			pthread_mutex_unlock(&mutex_readTry);
 
 		pthread_mutex_unlock(&mutex_wcount);
         /* 
@@ -393,8 +393,8 @@ int main(void)
     struct timespec req, rem;
 
 
-	pthread_mutex_init(&mutex_read, NULL);
-	pthread_mutex_init(&mutex_write, NULL);
+	pthread_mutex_init(&mutex_readTry, NULL);
+	pthread_mutex_init(&mutex_resource, NULL);
 	pthread_mutex_init(&mutex_rcount, NULL);
 	pthread_mutex_init(&mutex_wcount, NULL);
 
@@ -433,8 +433,8 @@ int main(void)
     for (i = 0; i < WNUM; ++i)
         pthread_join(wthid[i], NULL);
 
-	pthread_mutex_destroy(&mutex_read);
-	pthread_mutex_destroy(&mutex_write);
+	pthread_mutex_destroy(&mutex_readTry);
+	pthread_mutex_destroy(&mutex_resource);
 	pthread_mutex_destroy(&mutex_rcount);
 	pthread_mutex_destroy(&mutex_wcount);
 
