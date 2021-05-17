@@ -294,7 +294,7 @@ char *e[L3] = {
 int alive = 1;
 
 int count_write, count_read = 0;							//count how many write/read waiting.(critical section)
-pthread_mutex_t mutex_read, mutex_write;					//mutex for write/read.
+pthread_mutex_t mutex_readTry, mutex_resource;				//mutex for readTry/Resource.
 pthread_mutex_t mutex_rcount, mutex_wcount;					//mutex for count
 
 
@@ -322,15 +322,15 @@ void *reader(void *arg)
         /*
          * Begin Critical Section
          */
-		pthread_mutex_lock(&mutex_read);
+		pthread_mutex_lock(&mutex_readTry);
 		pthread_mutex_lock(&mutex_rcount);
 
 		count_read++;
 		if(count_read == 1)
-			pthread_mutex_lock(&mutex_write);
+			pthread_mutex_lock(&mutex_resource);
 
 		pthread_mutex_unlock(&mutex_rcount);
-		pthread_mutex_unlock(&mutex_read);
+		pthread_mutex_unlock(&mutex_readTry);
         
 		printf("<");
         for (i = 0; i < N; ++i)
@@ -341,7 +341,7 @@ void *reader(void *arg)
 
 		count_read--;
 		if(count_read == 0)
-			pthread_mutex_unlock(&mutex_write);
+			pthread_mutex_unlock(&mutex_resource);
 
 		pthread_mutex_unlock(&mutex_rcount);
 
@@ -384,11 +384,11 @@ void *writer(void *arg)
 
 		count_write++;
 		if (count_write==1)
-			pthread_mutex_lock(&mutex_read);
+			pthread_mutex_lock(&mutex_readTry);
 
 		pthread_mutex_unlock(&mutex_wcount);
 
-		pthread_mutex_lock(&mutex_write);
+		pthread_mutex_lock(&mutex_resource);
         printf("\n");
         switch (id) {
             case 0:
@@ -412,13 +412,13 @@ void *writer(void *arg)
             default:
                 ;
         }
-		pthread_mutex_unlock(&mutex_write);
+		pthread_mutex_unlock(&mutex_resource);
 
 		pthread_mutex_lock(&mutex_wcount);
 
 		count_write--;
 		if (count_write==0)
-			pthread_mutex_unlock(&mutex_read);
+			pthread_mutex_unlock(&mutex_readTry);
 
 		pthread_mutex_unlock(&mutex_wcount);
         /* 
@@ -442,8 +442,8 @@ int main(void)
     struct timespec req, rem;
 
 
-	pthread_mutex_init(&mutex_read, NULL);
-	pthread_mutex_init(&mutex_write, NULL);
+	pthread_mutex_init(&mutex_readTry, NULL);
+	pthread_mutex_init(&mutex_resource, NULL);
 	pthread_mutex_init(&mutex_rcount, NULL);
 	pthread_mutex_init(&mutex_wcount, NULL);
 
@@ -482,14 +482,15 @@ int main(void)
     for (i = 0; i < WNUM; ++i)
         pthread_join(wthid[i], NULL);
 
-	pthread_mutex_destroy(&mutex_read);
-	pthread_mutex_destroy(&mutex_write);
+	pthread_mutex_destroy(&mutex_readTry);
+	pthread_mutex_destroy(&mutex_resource);
 	pthread_mutex_destroy(&mutex_rcount);
 	pthread_mutex_destroy(&mutex_wcount);
 
 
     exit(0);
 }
+
 
 ```
 
@@ -928,13 +929,52 @@ int main(void)
 <img src="https://raw.githubusercontent.com/Leafsan/ReaderWriter/master/Report/%EC%BB%B4%ED%8C%8C%EC%9D%BC.png">
 pthread.h 헤더파일을 가진 프로그램을 gcc로 컴파일 하기위해서 -lpthread 옵션을 넣었다.
 
+<img src="https://raw.githubusercontent.com/Leafsan/ReaderWriter/master/Report/%EC%BB%B4%ED%8C%8C%EC%9D%BC_wsl2.png">
+WSL2로 구축한 리눅스 환경에서 gcc로 컴파일한 결과이다. 마찬가지로 -lpthread 옵션을 넣었다.
+
 ## 실행 결과
 이번 프로젝트의 실험결과는 그 양이 방대하기에 이미지 파일 대신에 txt피일이 제출물에 첨부되었다.
 
+### 공통 결과
 writer_prefer.c를 컴파일한 후 실행한 경우, Reader 스레드의 작업 도중에 Writer 스레드가 접근하면, 그 이후 Writer 스레드들이 우선적으로 뮤텍스를 취득하게 된다. 그 결과, 동일한 문자로 이루어진 문자열이 출력되다가, 인물의 초상화 모습을 한 아스키아트가 연이어 출력된다. 그 이후 Writer 스레드들이 작업이 끝나 뮤텍스를 반환하면 다시 Reader 스레드의 작업이 시작 되어 동일한 문자로 이루어진 문자열이 다시 출력된다.
 
 fair_reader_writer.c를 컴파일한 후 실행한 경우, Reader 스레드와 Writer 스레드가 접근한 순서대로 작업을 진행하기에 Reader 스레드의 작업 결과 도중마다 Writer 스레드의 작업 결과인 인물의 초상화 모습을 한 아스키아트가 출력된다. 스레드들의 접근 순서는 고정적이지 않기에 이는 실행할 때마다 결과가 바뀌게 된다.
 
+### 문제점
+기존 실행에서는 마치 reader가 상호배타로 동작하는 것처럼 보였다. reader의 critical section에서 mutex 설정을 하지 않았는데도 이러한 동작을 하는 것이 의문이 들어 몇가지 방식으로 해결해보려했다.
+
+#### gdb 디버깅
+gdb로 디버깅을 해보았다. 스레드의 생성 시점을 확인해본 결과 멀티 스레드 생성은 잘 되었으나 스레드의 생성 간격이 꽤나 늦었다. 그래도 생성 시점 이후로 동시에 critical section으로 진입하고 있음을 확인할 수 있는 문자열 일부를 확인할 수 있었다.
+
+<img src="https://raw.githubusercontent.com/Leafsan/ReaderWriter/master/Report/gdb_01.png">
+<img src="https://raw.githubusercontent.com/Leafsan/ReaderWriter/master/Report/gdb_02.png">
+<img src="https://raw.githubusercontent.com/Leafsan/ReaderWriter/master/Report/gdb_03.png">
+<img src="https://raw.githubusercontent.com/Leafsan/ReaderWriter/master/Report/gdb_04.png">
+
+위 문자열은 reader 함수의 특성 상 동시 진입이 발생하지 않으면 나올 수 없다고 판단된다. 그러나 실제 프로젝트 상에서 의도와는 달리 동작하기에 다른 해결법을 찾기로 했다.
+
+#### 가상 머신 코어 수 증가
+<img src="https://raw.githubusercontent.com/Leafsan/ReaderWriter/master/Report/01.png">
+가상 머신의 코어 수가 기존에는 위 사진처럼 하나였기에 생겨난 문제라고 판단했기에 코어 수를 증가시키기로 했다.
+
+<img src="https://raw.githubusercontent.com/Leafsan/ReaderWriter/master/Report/02.png">
+코어 수를 위처럼 증가시켰다.
+
+그러나 실제로 프로그램을 실행시켜보면 생각과는 다르게 큰 변화를 발생시키지는 않았다. stdout 버퍼로 문자열을 밀어내는 방식의 문제 탓인지 기존에 단일 코어로 실행한 결과하고 큰 차이를 보이지 않았다.
+
+<img src="https://raw.githubusercontent.com/Leafsan/ReaderWriter/master/Report/8core_01.png">
+fair_reader_writer의 도중에 한번 정도 의도한 출력이 나오긴 했지만, 이는 부족하다고 생각되었다.
+
+#### WSL2 사용
+<img src="https://raw.githubusercontent.com/Leafsan/ReaderWriter/master/Report/03.png">
+기존 가상환경이 문제일 수도 있다는 판단으로 윈도우에서 제공하는 가상환경인 WSL2를 이용하기로 했다.
+
+<img src="https://raw.githubusercontent.com/Leafsan/ReaderWriter/master/Report/wsl2_01.png">
+실행 결과는 의도한대로 reader가 critical section 진입 시 가능한 한 많은 reader 스레드가 접근해서 문자열이 어지럽게 섞여서 출력되었다.
+
+#### 소결론
+이번 프로젝트는 시스템 환경에 큰 영향을 받는 프로젝트였다고 생각된다. 기존의 싱글코어 가상환경에서도 reader 스레드가 동시에 접근함을 알 수 있는 문자열이 간혹 보이긴 했지만 WSL2 환경처럼 제대로 된 결과를 보여주지는 못했다.
 
 ## 결론
-이번 프로젝트는 큰 문제가 없이 잘 동작한다고 생각된다. 프로젝트 도중마다 서로 다른 작업을 하는 스레드들이 Critical Section에 접근하는 것을 제어하는 것이 꽤나 까다로웠다.
+서로 다른 작업을 하는 스레드들이 Critical Section에 접근하는 것을 제어하는 것이 꽤나 까다로웠다. 구현 자체는 실제 코드량이 많지 않았기에 크게 시간이 걸리지 않았지만, 실제 프로젝트에서 의도한 동작이 발생하지 않았기에 그것을 해결하는데 시간이 오래 걸렸다. 이번 프로젝트에서는 시스템 환경에 따라서도 동일한 프로그램이 동작의 차이를 보일 수 있다는 것을 알 수 있었기에 단순히 뮤텍스가 어떻게 동작하는지 이외에도 더 많은 것을 배울 수 있었다.
+지난 스도쿠 프로젝트에서 마지막 멀티스레드 동작이 생각과는 조금 다르게 동작한 게 어쩌면 시스템 환경의 차이 때문 아니었을까 생각이 든다.
